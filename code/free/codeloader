@@ -1,0 +1,156 @@
+#include "CoDrone2.h"
+#include <stdlib.h>
+#include <Wire.h> //I2C Arduino Library
+#define addr 0x0D //I2C Address for The HMC5883
+#define num 20
+
+int sensorValues_x[num];
+int sensorValues_y[num];
+int sensorValues_z[num];
+
+void Takeoff();
+void movement();
+int x = 0, y = 0, z = 0, n = 0 , a = 1, user_x = 0, user_y = 0, user_z = 0, Drone_state = 0;
+int data, data2, data3;
+int drone_x, drone_y, drone_z;
+String check;
+
+void setup() {
+
+  int x_first = 0, y_first = 0;
+  int absx = abs(x);
+  int absy = abs(y);
+
+  Serial.begin(115200);
+
+  Wire.begin();
+
+  Wire.beginTransmission(addr); //start talking
+  Wire.write(0x0B); // Tell the HMC5883 to Continuously Measure
+  Wire.write(0x01); // Set the Register
+  Wire.endTransmission();
+  Wire.beginTransmission(addr); //start talking
+  Wire.write(0x09); // Tell the HMC5883 to Continuously Measure
+  Wire.write(0x1D); // Set the Register
+  Wire.endTransmission();
+}
+
+void loop() {
+  position pos;
+  pos = CoDrone2.getPosition();
+
+  if (Drone_state == 1) { 
+    if (user_z > 1 or user_z < -1) { 
+      CoDrone2.moveBasedPositon(FORWARD, n, 2);
+      delay(3000);
+      CoDrone2.moveBasedPositon(LEFT_TURN, 90, 3);
+      delay(4000);
+      CoDrone2.moveBasedPositon(FORWARD, n, 2);
+      delay(3000);
+       movement();
+    }
+    else {
+      movement();
+    }
+  }
+
+  Wire.beginTransmission(addr);
+  Wire.write(0x00); //start with register 3.
+  Wire.endTransmission();
+
+  //Read the data.. 2 bytes for each axis.. 6 total bytes
+  Wire.requestFrom(addr, 6);
+  if (6 <= Wire.available()) {
+    drone_x = Wire.read(); //MSB  x
+    drone_x |= Wire.read() << 8; //LSB  x
+    drone_z = Wire.read(); //MSB  z
+    drone_z |= Wire.read() << 8; //LSB z
+    drone_y = Wire.read(); //MSB y
+    drone_y |= Wire.read() << 8; //LSB y
+  }
+  void filter();
+  Takeoff();
+}
+
+void movement() {
+  CoDrone2.moveBasedSpeed(FORWARD, 0.3);
+  if (CoDrone2.rangeFront < 10 or (drone_x <= user_x + 0.1 and drone_x >=  user_x - 0.1)) {
+
+    if (y > 0) {
+      delay(500);
+      CoDrone2.moveBasedPositon(LEFT_TURN, 90, 6);
+      delay(6000);
+    }
+    else if (y < 0) {
+      delay(500);
+      CoDrone2.moveBasedPositon(RIGHT_TURN, 90, 6);
+      delay(6000);
+    }
+  }
+  if ((drone_x <= user_x + 0.1 and drone_x >=  user_x - 0.1) and (drone_y <= user_y + 0.1 and drone_y >= user_y - 0.1)) {
+    delay(1000);
+    CoDrone2.land();
+  }
+}
+
+void Takeoff() {
+  while (Serial.available()) {
+    check = Serial.read();
+
+      data = Serial.parseInt();
+      delay(5);
+      data2 = Serial.parseInt();
+      delay(5);
+      data3 = Serial.parseInt();
+      delay(5);
+      user_x = data;
+      user_y = data2;
+      user_z = data3;
+
+      Serial.print("user_x:");
+      Serial.print(x);
+      Serial.print("user_y:");
+      Serial.print(y);
+      Serial.print("user_z:");
+      Serial.println(z);
+    
+
+    if (check == "emergency") {
+      CoDrone2.begin();
+      delay(1000);
+      CoDrone2.takeoff();
+      delay(5000);
+    }
+  }
+  Drone_state = 1;
+}
+
+void filter()
+{
+  for (int i = 0; i < num - 1; i++)
+  {
+    sensorValues_x[i] = sensorValues_x[i + 1];
+    sensorValues_y[i] = sensorValues_y[i + 1];
+    sensorValues_z[i] = sensorValues_z[i + 1];
+  }
+
+  sensorValues_x[num - 1] = x;
+  sensorValues_y[num - 1] = y;
+  sensorValues_z[num - 1] = z;
+  float filter_x, filter_y, filter_z;
+
+  for (int i = 0; i < num; i++)
+  {
+    filter_x += sensorValues_x[i];
+    filter_y += sensorValues_y[i];
+    filter_z += sensorValues_z[i];
+  }
+
+  filter_x /= num;
+  filter_y /= num;
+  filter_z /= num;
+
+  x = filter_x;
+  y = filter_y;
+  z = filter_z;
+}
